@@ -1,3 +1,5 @@
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/b89395d7-68fc-4bd3-9ec7-d43c0a1a5adb" />
+
 # LUMEN — LLM-based Unified Meta-analysis Extraction Network
 
 > **v1** — First public release
