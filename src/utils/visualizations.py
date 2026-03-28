@@ -600,3 +600,291 @@ def calibration_curve_plot(
         logger.info(f"Saved calibration curve: {save_path}")
 
     return fig
+
+
+# ======================================================================
+# RoB-2 Traffic Light Plot
+# ======================================================================
+
+# Cochrane-standard color mapping
+_ROB2_COLORS = {
+    "Low risk": "#4CAF50",       # green
+    "Some concerns": "#FFC107",  # amber/yellow
+    "High risk": "#F44336",      # red
+    "No information": "#BDBDBD", # gray
+}
+
+_ROB2_SYMBOLS = {
+    "Low risk": "+",
+    "Some concerns": "~",
+    "High risk": "\u2013",       # en-dash
+    "No information": "?",
+}
+
+_ROB2_DOMAIN_LABELS = {
+    "D1": "D1\nRandomization\nprocess",
+    "D2": "D2\nDeviations from\nintended interventions",
+    "D3": "D3\nMissing\noutcome data",
+    "D4": "D4\nMeasurement\nof the outcome",
+    "D5": "D5\nSelection of\nthe reported result",
+    "Overall": "Overall",
+}
+
+_ROB2_DOMAIN_SHORT = {
+    "D1": "D1",
+    "D2": "D2",
+    "D3": "D3",
+    "D4": "D4",
+    "D5": "D5",
+    "Overall": "Overall",
+}
+
+
+def plot_rob2_traffic_light(
+    assessments: list,
+    output_path: str = None,
+    title: str = "Risk of Bias Assessment (RoB-2)",
+) -> plt.Figure:
+    """
+    Cochrane-style RoB-2 traffic light plot.
+
+    Rows = studies, columns = domains D1-D5 + Overall.
+    Each cell is a colored circle with +/~/- symbol.
+
+    Args:
+        assessments: list of RoB-2 assessment dicts (from rob2_assessments.json)
+        output_path: path to save PNG (optional)
+        title: plot title
+
+    Returns:
+        matplotlib Figure
+    """
+    _apply_style()
+
+    domain_ids = ["D1", "D2", "D3", "D4", "D5", "Overall"]
+    n_studies = len(assessments)
+    n_domains = len(domain_ids)
+
+    if n_studies == 0:
+        fig, ax = plt.subplots(figsize=(8, 2))
+        ax.text(0.5, 0.5, "No RoB-2 assessments available",
+                ha="center", va="center", transform=ax.transAxes, fontsize=12)
+        ax.axis("off")
+        if output_path:
+            fig.savefig(output_path, dpi=300, bbox_inches="tight")
+        return fig
+
+    # Build the data matrix
+    study_labels = []
+    judgments_matrix = []  # [study_idx][domain_idx]
+
+    for a in assessments:
+        sid = a.get("study_id", "Unknown")
+        study_labels.append(sid)
+        row = []
+        for did in domain_ids:
+            if did == "Overall":
+                j = a.get("overall_judgment", "No information")
+            else:
+                j = a.get("domains", {}).get(did, {}).get("judgment", "No information")
+            row.append(j if j else "No information")
+        judgments_matrix.append(row)
+
+    # Figure sizing
+    cell_size = 0.55
+    fig_width = max(8, n_domains * 1.6 + 3)
+    fig_height = max(3, n_studies * cell_size + 2.5)
+
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    # Draw colored squares with rounded corners for each cell
+    cell_pad = 0.08
+    for i, row in enumerate(judgments_matrix):
+        y = n_studies - 1 - i  # top-to-bottom
+        for j, judgment in enumerate(row):
+            color = _ROB2_COLORS.get(judgment, _ROB2_COLORS["No information"])
+            symbol = _ROB2_SYMBOLS.get(judgment, "?")
+
+            rect = mpatches.FancyBboxPatch(
+                (j - 0.5 + cell_pad, y - 0.5 + cell_pad),
+                1.0 - 2 * cell_pad, 1.0 - 2 * cell_pad,
+                boxstyle=mpatches.BoxStyle.Round(pad=0.05, rounding_size=0.15),
+                facecolor=color, edgecolor="white", linewidth=1.5, zorder=2,
+            )
+            ax.add_patch(rect)
+
+            # Symbol text
+            ax.text(j, y, symbol, ha="center", va="center",
+                    fontsize=11, fontweight="bold", color="white", zorder=3)
+
+    # Axes configuration
+    ax.set_xlim(-0.6, n_domains - 0.4)
+    ax.set_ylim(-0.6, n_studies - 0.4)
+
+    # X-axis: domain labels at top
+    ax.set_xticks(range(n_domains))
+    ax.set_xticklabels(
+        [_ROB2_DOMAIN_LABELS.get(d, d) for d in domain_ids],
+        fontsize=8, ha="center",
+    )
+    ax.xaxis.set_ticks_position("top")
+    ax.xaxis.set_label_position("top")
+
+    # Y-axis: study labels
+    ax.set_yticks(range(n_studies))
+    ax.set_yticklabels(
+        list(reversed(study_labels)),
+        fontsize=9,
+    )
+
+    # Remove spines and grid
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.tick_params(length=0)
+
+    # Add separator line before Overall column
+    ax.axvline(x=n_domains - 1.5, color="gray", linewidth=0.5, linestyle="--", alpha=0.4)
+
+    # Legend
+    legend_handles = [
+        mpatches.Patch(facecolor=_ROB2_COLORS["Low risk"], edgecolor="gray",
+                       label="Low risk"),
+        mpatches.Patch(facecolor=_ROB2_COLORS["Some concerns"], edgecolor="gray",
+                       label="Some concerns"),
+        mpatches.Patch(facecolor=_ROB2_COLORS["High risk"], edgecolor="gray",
+                       label="High risk"),
+    ]
+    ax.legend(handles=legend_handles, loc="upper center",
+              bbox_to_anchor=(0.5, -0.02), ncol=3, fontsize=9,
+              frameon=True, fancybox=True, shadow=False)
+
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=60)
+
+    plt.tight_layout()
+
+    if output_path:
+        fig.savefig(output_path, dpi=300, bbox_inches="tight")
+        logger.info(f"Saved RoB-2 traffic light plot: {output_path}")
+
+    return fig
+
+
+def plot_rob2_summary_bar(
+    assessments: list,
+    output_path: str = None,
+    title: str = "Risk of Bias Summary (RoB-2)",
+) -> plt.Figure:
+    """
+    Stacked horizontal bar chart showing proportion of Low/Some/High per domain.
+
+    Args:
+        assessments: list of RoB-2 assessment dicts
+        output_path: path to save PNG (optional)
+        title: plot title
+
+    Returns:
+        matplotlib Figure
+    """
+    _apply_style()
+
+    domain_ids = ["D1", "D2", "D3", "D4", "D5", "Overall"]
+    n_studies = len(assessments)
+
+    if n_studies == 0:
+        fig, ax = plt.subplots(figsize=(8, 2))
+        ax.text(0.5, 0.5, "No RoB-2 assessments available",
+                ha="center", va="center", transform=ax.transAxes, fontsize=12)
+        ax.axis("off")
+        if output_path:
+            fig.savefig(output_path, dpi=300, bbox_inches="tight")
+        return fig
+
+    # Count judgments per domain
+    categories = ["Low risk", "Some concerns", "High risk"]
+    counts = {d: {c: 0 for c in categories} for d in domain_ids}
+
+    for a in assessments:
+        for did in domain_ids:
+            if did == "Overall":
+                j = a.get("overall_judgment", "No information")
+            else:
+                j = a.get("domains", {}).get(did, {}).get("judgment", "No information")
+            if j in categories:
+                counts[did][j] += 1
+
+    # Compute percentages
+    percentages = {}
+    for did in domain_ids:
+        total = sum(counts[did].values())
+        if total > 0:
+            percentages[did] = {c: counts[did][c] / total * 100 for c in categories}
+        else:
+            percentages[did] = {c: 0 for c in categories}
+
+    # Build stacked bar
+    fig, ax = plt.subplots(figsize=(10, max(3, len(domain_ids) * 0.6 + 1.5)))
+
+    domain_labels = []
+    for did in domain_ids:
+        if did == "Overall":
+            domain_labels.append("Overall")
+        else:
+            name = {
+                "D1": "D1: Randomization process",
+                "D2": "D2: Deviations from intended interventions",
+                "D3": "D3: Missing outcome data",
+                "D4": "D4: Measurement of the outcome",
+                "D5": "D5: Selection of the reported result",
+            }.get(did, did)
+            domain_labels.append(name)
+
+    y_pos = np.arange(len(domain_ids))
+
+    # Plot bars in order: Low risk (green), Some concerns (yellow), High risk (red)
+    left = np.zeros(len(domain_ids))
+    for cat, color in zip(categories, [_ROB2_COLORS["Low risk"],
+                                        _ROB2_COLORS["Some concerns"],
+                                        _ROB2_COLORS["High risk"]]):
+        widths = [percentages[did][cat] for did in domain_ids]
+        bars = ax.barh(y_pos, widths, left=left, height=0.6,
+                       color=color, edgecolor="white", linewidth=0.5)
+
+        # Add percentage text if segment is wide enough
+        for idx, (w, l) in enumerate(zip(widths, left)):
+            if w > 8:  # Only show text if segment is wide enough
+                ax.text(l + w / 2, y_pos[idx], f"{w:.0f}%",
+                        ha="center", va="center", fontsize=8,
+                        fontweight="bold", color="white" if cat != "Some concerns" else "black")
+
+        left += widths
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(domain_labels, fontsize=9)
+    ax.set_xlabel("Percentage of studies", fontsize=10)
+    ax.set_xlim(0, 100)
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.invert_yaxis()
+
+    # Clean up
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    # Legend
+    legend_handles = [
+        mpatches.Patch(facecolor=_ROB2_COLORS["Low risk"], edgecolor="gray",
+                       label="Low risk"),
+        mpatches.Patch(facecolor=_ROB2_COLORS["Some concerns"], edgecolor="gray",
+                       label="Some concerns"),
+        mpatches.Patch(facecolor=_ROB2_COLORS["High risk"], edgecolor="gray",
+                       label="High risk"),
+    ]
+    ax.legend(handles=legend_handles, loc="lower right", fontsize=9,
+              frameon=True, fancybox=True)
+
+    plt.tight_layout()
+
+    if output_path:
+        fig.savefig(output_path, dpi=300, bbox_inches="tight")
+        logger.info(f"Saved RoB-2 summary bar chart: {output_path}")
+
+    return fig

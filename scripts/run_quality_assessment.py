@@ -27,6 +27,7 @@ from src.utils.file_handlers import DataManager
 from src.utils.cache import TokenBudget
 from src.config import cfg
 from src.utils.rob2 import RoB2Assessor, build_rob2_summary
+from src.utils.visualizations import plot_rob2_traffic_light, plot_rob2_summary_bar
 from src.utils.robins_i import (
     classify_study_design,
     RobinsIAssessor,
@@ -110,6 +111,25 @@ def main():
                 f"{overall.get('Some concerns', 0)} some concerns, "
                 f"{overall.get('High risk', 0)} high risk"
             )
+
+            # Generate RoB-2 figures
+            fig_dir = dm.phase_dir("quality_assessment", subfolder="figures")
+            try:
+                import matplotlib.pyplot as plt
+                plot_rob2_traffic_light(
+                    rob2_assessments,
+                    output_path=str(fig_dir / "rob2_traffic_light.png"),
+                )
+                plot_rob2_summary_bar(
+                    rob2_assessments,
+                    output_path=str(fig_dir / "rob2_summary_bar.png"),
+                )
+                logger.info("RoB-2 figures saved to quality_assessment/figures/")
+            except Exception as e:
+                logger.warning(f"Failed to generate RoB-2 figures: {e}")
+            finally:
+                import matplotlib.pyplot as plt
+                plt.close("all")
 
         # ── ROBINS-I for non-RCTs ──
         robins_i_assessments = []
