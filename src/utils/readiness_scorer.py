@@ -18,6 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import yaml
+
 logger = logging.getLogger(__name__)
 
 
@@ -182,7 +184,7 @@ class PublicationReadinessScorer:
         )
 
         # Prescreen rescue documented
-        prescreen = self._load_json("phase2_5_prescreen/prescreen_results.json")
+        prescreen = self._load_json("phase2_search/prescreened/prescreen_rescue_log.json")
         dim.add_check(
             "Pre-screening documented",
             prescreen is not None,
@@ -514,7 +516,6 @@ class PublicationReadinessScorer:
             )
 
         # Model version pinning
-        import yaml
         models_path = Path("config/models.yaml")
         if models_path.exists():
             with open(models_path, "r") as f:
@@ -609,7 +610,6 @@ class PublicationReadinessScorer:
         if not path.exists():
             # Try .yaml as well
             if relative_path.endswith(".yaml"):
-                import yaml
                 try:
                     with open(path, "r", encoding="utf-8") as f:
                         return yaml.safe_load(f)
@@ -619,7 +619,6 @@ class PublicationReadinessScorer:
 
         try:
             if path.suffix in (".yaml", ".yml"):
-                import yaml
                 with open(path, "r", encoding="utf-8") as f:
                     return yaml.safe_load(f)
             with open(path, "r", encoding="utf-8") as f:

@@ -15,12 +15,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.utils.project import select_project, get_data_dir
+from src.utils.project import select_project
 from src.utils.file_handlers import DataManager
 from src.utils.cache import TokenBudget
-from src.utils.prescreen import (
-    run_prescreen, regex_rescue, llm_lite_rescue, build_positive_signals,
-)
+from src.utils.prescreen import run_prescreen, regex_rescue, llm_lite_rescue
 from src.config import cfg
 from src.agents.base_agent import BaseAgent
 
@@ -62,7 +60,7 @@ def main():
         # Stage B: LLM-lite rescue (if enabled)
         if still_quarantined and rescue_mode == "llm_lite":
             logger.info("Running LLM-lite rescue...")
-            budget = TokenBudget("phase2_5", limit_usd=cfg.budget("phase2_5"), reset=True)
+            budget = TokenBudget("phase3_0", limit_usd=cfg.budget("phase3_0"), reset=True)
             rescue_agent = BaseAgent(role_name="rescue_screener", budget=budget)
 
             pico_summary = pico.get("pico", {})

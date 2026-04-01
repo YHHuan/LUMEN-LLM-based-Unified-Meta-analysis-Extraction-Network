@@ -178,31 +178,39 @@ if (RUN_NETWORK_GRAPH) {
   png(file.path(FIG_DIR, "nma_network_graph.png"),
       width = FIG_WIDTH, height = FIG_HEIGHT, units = "in", res = FIG_DPI)
   tryCatch({
-    # Node size proportional to total sample size
+    # Node size proportional to number of studies involving each treatment
     n_per_treat <- tapply(
       c(nma_data$studlab, nma_data$studlab),
       c(nma_data$treat1, nma_data$treat2),
       function(x) length(unique(x))
     )
-    node_sizes <- sqrt(as.numeric(n_per_treat[net$trts])) * 2 + 1
+    node_sizes <- sqrt(as.numeric(n_per_treat[net$trts])) * 1.8 + 2
+
+    # Use circular layout for cleaner small networks
+    n_trts <- length(net$trts)
+    layout_seq <- if (n_trts <= 5) "circle" else "optimal"
+
     netgraph(
       net,
-      seq = "optimal",
+      seq = layout_seq,
       number.of.studies = TRUE,
       cex.points = node_sizes,
-      col.points = "steelblue",
-      col = "grey50",
+      col.points = "#4682B4",
+      col = "#666666",
       plastic = FALSE,
       thickness = "number.of.studies",
       points = TRUE,
-      cex.number = 1.2,
-      offset = 0.025,
-      adj = 0.5
+      cex.number = 1.5,
+      offset = 0.035,
+      adj = 0.5,
+      lwd = 2
     )
-    # Add I2 and tau2 annotation
-    mtext(paste0("I\u00B2 = ", round(net$I2 * 100, 1), "%;  ",
-                 "\u03C4\u00B2 = ", round(net$tau2, 4)),
-          side = 1, line = -1, cex = 0.9, col = "grey30")
+    # Add heterogeneity annotation
+    i2_val <- if (!is.null(net$I2) && !is.na(net$I2)) round(net$I2 * 100, 1) else "NA"
+    tau2_val <- if (!is.null(net$tau2)) round(net$tau2, 3) else "NA"
+    k_val <- length(unique(nma_data$studlab))
+    mtext(paste0("k = ", k_val, ";  I\u00B2 = ", i2_val, "%;  \u03C4\u00B2 = ", tau2_val),
+          side = 1, line = 0, cex = 1.0, col = "grey30")
   }, error = function(e) {
     cat("Network graph error (non-fatal):", conditionMessage(e), "\n")
     plot.new()
@@ -430,8 +438,8 @@ if (RUN_NODE_SPLITTING) {
   }
 }
 
-# --- 12. Net heat plot ---
-if (RUN_NET_HEAT) {
+# --- 12. Net heat plot (skip for small networks — uninformative) ---
+if (RUN_NET_HEAT && length(net$trts) >= 5) {
   cat("\n=== Net Heat Plot ===\n")
   tryCatch({
     png(file.path(FIG_DIR, "nma_netheat.png"),
@@ -440,8 +448,11 @@ if (RUN_NET_HEAT) {
     dev.off()
     cat("Net heat plot saved.\n")
   }, error = function(e) {
+    try(dev.off(), silent = TRUE)
     cat("Net heat plot failed:", e$message, "\n")
   })
+} else if (RUN_NET_HEAT) {
+  cat("Skipping net heat plot (< 5 treatments, uninformative).\n")
 }
 
 # --- 13. Leave-one-out sensitivity ---

@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -133,7 +133,7 @@ class QCEngine:
     def run_all_checks(self, phase: str) -> List[QCIssue]:
         """Run all QC checks for a given phase."""
         checkers = {
-            "phase2_5_prescreen": self._qc_prescreen,
+            "phase3_0_prescreen": self._qc_prescreen,
             "phase3_screening": self._qc_screening,
             "phase3_3_fulltext": self._qc_fulltext,
             "phase4_extraction": self._qc_extraction,
@@ -150,7 +150,7 @@ class QCEngine:
     # ==================================================================
 
     def _qc_prescreen(self) -> List[QCIssue]:
-        """QC after Phase 2.5/3.0 pre-screening."""
+        """QC after Phase 3.0 pre-screening."""
         issues = []
 
         excluded_path = self.dm.base_dir / "phase2_search" / "prescreened" / "prescreen_excluded.json"
@@ -408,7 +408,6 @@ class QCEngine:
 
         # Check 4: Duplicate study IDs
         ids = [s.get("study_id") for s in extracted]
-        from collections import Counter
         dupes = {k: v for k, v in Counter(ids).items() if v > 1}
         if dupes:
             issues.append(QCIssue(

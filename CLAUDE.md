@@ -32,7 +32,7 @@ python scripts/run_phase2.py
 python scripts/run_phase2.py --deduplicate              # Re-dedup after manual imports
 
 # Phase 3.0: Pre-screening — context-aware rescue of quarantined studies
-python scripts/run_phase2_5_prescreen.py
+python scripts/run_phase3_0_prescreen.py
 
 # Phase 3.1: Dual T/A screening — two models + arbiter, 5-point confidence scale
 python scripts/run_phase3_stage1.py

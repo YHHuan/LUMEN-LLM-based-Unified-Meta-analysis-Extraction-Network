@@ -394,8 +394,8 @@ def collect_paper_figures(output_dir: str):
             try:
                 with open(dm_path, encoding="utf-8") as f:
                     n_studies = len(json.load(f))
-            except Exception:
-                pass
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                logger.warning(f"Could not parse {dm_path}")
 
         report = tracker.full_report(n_studies=n_studies)
         domain_reports[domain_dir.name] = report

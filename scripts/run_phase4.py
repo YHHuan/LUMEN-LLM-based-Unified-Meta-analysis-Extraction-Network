@@ -25,7 +25,7 @@ from src.utils.project import select_project, get_data_dir
 from src.utils.file_handlers import DataManager
 from src.utils.cache import TokenBudget
 from src.utils.pdf_decomposer import get_or_decompose, format_segments_for_llm
-from src.utils.vector_index import DocumentVectorIndex, build_field_queries
+from src.utils.vector_index import DocumentVectorIndex
 from src.utils.extraction_context import build_extraction_context
 from src.utils.deduplication import generate_canonical_citation
 from src.config import cfg

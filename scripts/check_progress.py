@@ -11,7 +11,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.project import select_project, get_data_dir
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -44,7 +45,7 @@ def main():
         if full_path.exists():
             if full_path.is_file():
                 try:
-                    with open(full_path) as f:
+                    with open(full_path, encoding="utf-8") as f:
                         data = json.load(f)
                     if isinstance(data, list):
                         count = f"{len(data)} items"
@@ -52,7 +53,7 @@ def main():
                         count = f"{len(data)} keys"
                     else:
                         count = "exists"
-                except Exception:
+                except (json.JSONDecodeError, UnicodeDecodeError):
                     count = "exists"
                 print(f"  [OK] {label}: {count}")
             elif full_path.is_dir():
@@ -67,7 +68,7 @@ def main():
         print("\n  Budget Summary:")
         total_cost = 0.0
         for bf in sorted(budget_dir.glob("*_budget.json")):
-            with open(bf) as f:
+            with open(bf, encoding="utf-8") as f:
                 b = json.load(f)
             cost = b.get("total_cost_usd", 0)
             total_cost += cost

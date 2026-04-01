@@ -52,8 +52,8 @@ Phase 6       Manuscript Drafting (citation-grounded)
 ### Installation
 
 ```bash
-git clone https://github.com/YHHuan/LUMEN-LLM-based-Unified-Meta-analysis-Extraction-Network.git
-cd LUMEN-LLM-based-Unified-Meta-analysis-Extraction-Network
+git clone https://github.com/YHHuan/LUMEN.git
+cd LUMEN
 
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
@@ -90,7 +90,7 @@ study_design: "Randomized controlled trials"
 # Core pipeline (run sequentially)
 python scripts/run_phase1.py                              # Strategy
 python scripts/run_phase2.py                              # Search
-python scripts/run_phase2_5_prescreen.py                  # Pre-screen
+python scripts/run_phase3_0_prescreen.py                  # Pre-screen
 python scripts/run_phase3_stage1.py                       # Dual T/A screening
 python scripts/run_phase3_stage2.py --download             # PDF download
 python scripts/run_phase3_stage2.py --finalize-pending     # Finalize PDFs
@@ -317,6 +317,6 @@ If you use LUMEN v2 in your research, please cite:
   author = {Huang, Yen-Hsun and Lin, Yu-Shiou},
   title = {LUMEN: LLM-based Unified Meta-analysis Extraction Network},
   year = {2026},
-  url = {https://github.com/YHHuan/LUMEN-LLM-based-Unified-Meta-analysis-Extraction-Network}
+  url = {https://github.com/YHHuan/LUMEN}
 }
 ```

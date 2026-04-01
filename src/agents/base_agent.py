@@ -8,6 +8,7 @@ retry logic, structured JSON parsing, prompt audit logging.
 
 import hashlib
 import json
+import os
 import re
 import time
 import logging
@@ -16,8 +17,9 @@ from typing import Optional
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 from openai import OpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential, RetryCallState
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.utils.cache import ContentCache, TokenBudget, BudgetExceededError
 from src.utils.project import get_data_dir
@@ -43,8 +45,6 @@ class BaseAgent:
                  budget: Optional[TokenBudget] = None):
         self.role_name = role_name
 
-        import os
-        from dotenv import load_dotenv
         load_dotenv()
 
         if config_path is None:
@@ -200,8 +200,7 @@ class BaseAgent:
         # 5. Parse response (guard against empty choices from API)
         if not response or not response.choices:
             logger.warning(f"[{self.role_name}] Empty response from API, retrying once...")
-            import time as _time
-            _time.sleep(2)
+            time.sleep(2)
             _retry_count += 1
             _t0 = time.time()
             response = self._call_with_retry(messages)

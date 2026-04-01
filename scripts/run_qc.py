@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message
 logger = logging.getLogger(__name__)
 
 PHASE_MAP = {
-    "prescreen": "phase2_5_prescreen",
+    "prescreen": "phase3_0_prescreen",
     "screening": "phase3_screening",
     "fulltext": "phase3_3_fulltext",
     "extraction": "phase4_extraction",

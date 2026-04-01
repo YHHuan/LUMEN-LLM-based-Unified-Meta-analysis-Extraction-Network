@@ -12,7 +12,11 @@ build/
 .env
 *.key
 
-# ── Data: exclude ALL run outputs, keep only input/pico.yaml ──
+# ── Data: exclude ALL run outputs + user docs, keep only input/pico.yaml ──
+data/*/*.docx
+data/*/overleaf_export/
+data/*/qc_reports/
+data/*/report/
 data/.active_project
 data/.audit/
 data/*/.audit/

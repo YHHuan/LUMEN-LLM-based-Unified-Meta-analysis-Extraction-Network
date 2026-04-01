@@ -361,7 +361,7 @@ def _compute_smd_raw(m1, sd1, n1, m2, sd2, n2):
     sd_pooled = math.sqrt(((n1 - 1) * sd1**2 + (n2 - 1) * sd2**2) / (n1 + n2 - 2))
     if sd_pooled == 0:
         return None, None
-    d = (m2 - m1) / sd_pooled
+    d = (m1 - m2) / sd_pooled  # treat1 - treat2 (netmeta convention)
     df = n1 + n2 - 2
     j = 1 - 3 / (4 * df - 1)  # Hedges' correction
     g = d * j
@@ -385,7 +385,7 @@ def _compute_log_rr(e1, n1, e2, n2):
     p2 = e2 / n2
     if p1 <= 0 or p2 <= 0:
         return None, None
-    log_rr = math.log(p2 / p1)
+    log_rr = math.log(p1 / p2)
     se = math.sqrt(1/e1 - 1/n1 + 1/e2 - 1/n2)
     return log_rr, se
 
@@ -483,6 +483,47 @@ def build_treatment_mapping(contrasts: List[Dict],
         mapped.append(mc)
 
     return mapped
+
+
+# ======================================================================
+# Post-harmonization contrast deduplication
+# ======================================================================
+
+def dedup_harmonized_contrasts(contrasts: List[Dict]) -> List[Dict]:
+    """
+    After outcome harmonization, multiple sub-outcomes may map to the same
+    canonical name, creating duplicate contrasts for the same
+    (study, treat1, treat2) tuple.  R netmeta requires exactly k*(k-1)/2
+    contrasts per k-arm study; extras cause a fatal error.
+
+    Strategy: for each (studlab, treat1, treat2) group keep the contrast
+    with the smallest seTE (most informative).  Ties broken by first
+    occurrence.
+    """
+    from collections import defaultdict
+
+    buckets: Dict[tuple, List[Dict]] = defaultdict(list)
+    for c in contrasts:
+        # Normalise direction so A-vs-B and B-vs-A land in the same bucket
+        t1, t2 = c["treat1"], c["treat2"]
+        key = (c["studlab"], min(t1, t2), max(t1, t2))
+        buckets[key].append(c)
+
+    deduped = []
+    n_dropped = 0
+    for key, group in buckets.items():
+        if len(group) == 1:
+            deduped.append(group[0])
+        else:
+            # Keep the contrast with smallest seTE
+            best = min(group, key=lambda c: c.get("seTE", float("inf")))
+            deduped.append(best)
+            n_dropped += len(group) - 1
+
+    if n_dropped:
+        logger.info(f"dedup_harmonized_contrasts: dropped {n_dropped} duplicate "
+                     f"contrasts ({len(contrasts)} → {len(deduped)})")
+    return deduped
 
 
 # ======================================================================

@@ -23,8 +23,11 @@ Reference:
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Optional
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +300,7 @@ class PrismaSChecker:
 
     def _check_screening_process(self):
         screening = self._file_exists("phase3_screening/screening_results.json")
-        prescreen = self._file_exists("phase2_5_prescreen/prescreen_results.json")
+        prescreen = self._file_exists("phase2_search/prescreened/prescreen_rescue_log.json")
 
         if screening and prescreen:
             return "pass", "Pre-screening + dual screening documented"
@@ -310,7 +313,6 @@ class PrismaSChecker:
         if strategy:
             content = json.dumps(strategy)
             # Look for date patterns
-            import re
             dates = re.findall(r"20\d{2}[-/]\d{2}[-/]\d{2}", content)
             if dates:
                 return "pass", f"Search date(s): {', '.join(dates[:3])}"
@@ -339,7 +341,6 @@ class PrismaSChecker:
             return None
         try:
             if path.suffix in (".yaml", ".yml"):
-                import yaml
                 with open(path, "r", encoding="utf-8") as f:
                     return yaml.safe_load(f)
             with open(path, "r", encoding="utf-8") as f:

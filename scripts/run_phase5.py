@@ -24,7 +24,7 @@ from src.utils.project import select_project, get_data_dir
 from src.utils.file_handlers import DataManager
 from src.utils.cache import TokenBudget
 from src.utils.statistics import MetaAnalysisEngine, is_r_available, run_r_metafor, run_dual_engine
-from src.utils.effect_sizes import compute_effect_from_study, compute_effect_auto, detect_outcome_type
+from src.utils.effect_sizes import compute_effect_auto
 from src.utils.deduplication import deduplicate_for_meta_analysis
 from src.utils import visualizations as viz
 from src.utils.stage_gate import validate_phase4_to_5
@@ -620,11 +620,58 @@ def _harmonize_nma_outcomes_llm(raw_names: list, pico: dict, dm) -> dict:
         return {}
 
 
+def _run_pairwise_fallback(contrasts, outcome, effect_measure, output_dir):
+    """Run standard pairwise MA when NMA is not feasible (<3 treatments or disconnected)."""
+    import numpy as np
+    from src.utils.statistics import run_r_metafor, MetaAnalysisEngine, is_r_available
+
+    effects = np.array([c["TE"] for c in contrasts])
+    variances = np.array([c["seTE"] ** 2 for c in contrasts])
+    labels = [c["studlab"] for c in contrasts]
+
+    fig_dir = str(Path(output_dir) / "figures")
+    Path(fig_dir).mkdir(parents=True, exist_ok=True)
+
+    measure_label = effect_measure  # "RR" or "SMD"
+    try:
+        if is_r_available():
+            result = run_r_metafor(
+                effects, variances, labels,
+                method="REML", knha=True,
+                measure_label=measure_label,
+                figures_dir=fig_dir,
+            )
+        else:
+            engine = MetaAnalysisEngine(estimator="REML", hartung_knapp=True)
+            result = engine.run_full_analysis(effects, variances, labels)
+    except Exception as e:
+        logger.error(f"  Pairwise fallback for '{outcome}' failed: {e}")
+        return None
+
+    # Tag as pairwise fallback
+    result["analysis_type"] = "pairwise_fallback"
+    result["outcome"] = outcome
+    result["effect_measure"] = effect_measure
+    result["n_studies"] = len(set(labels))
+    result["n_contrasts"] = len(contrasts)
+    treatments = sorted(set(c["treat1"] for c in contrasts) | set(c["treat2"] for c in contrasts))
+    result["treatments"] = treatments
+
+    # Save per-outcome results JSON
+    results_path = Path(output_dir) / "pairwise_results.json"
+    import json
+    with open(results_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, default=str)
+
+    return result
+
+
 def _run_nma(dm, args):
     """Run NMA analysis via R netmeta."""
     from src.utils.nma import (
         prepare_nma_data, validate_network, run_nma_from_settings,
         is_netmeta_available, run_nma, load_nma_settings,
+        dedup_harmonized_contrasts,
     )
 
     # Load PICO for per-project NMA overrides
@@ -709,7 +756,15 @@ def _run_nma(dm, args):
         canonical = harmonization_map.get(outcome, outcome)
         harmonized_groups[canonical].extend(cs)
 
-    # Filter: need >= 2 studies per outcome for NMA
+    # Dedup: harmonization may merge sub-outcomes (e.g. "Nausea" + "Vomiting"
+    # → same canonical), creating multiple contrasts per (study, treat pair).
+    # R netmeta requires exactly k*(k-1)/2 contrasts per k-arm study.
+    for outcome in harmonized_groups:
+        harmonized_groups[outcome] = dedup_harmonized_contrasts(
+            harmonized_groups[outcome]
+        )
+
+    # Filter: need >= 2 studies per outcome
     feasible = {}
     for outcome, cs in harmonized_groups.items():
         studies = set(c["studlab"] for c in cs)
@@ -739,28 +794,13 @@ def _run_nma(dm, args):
     if "effect_measure" not in pico_nma and pico.get("effect_measure"):
         nma_cfg["effect_measure"] = pico["effect_measure"]
 
-    # --- Run NMA per feasible outcome ---
+    # --- Run NMA (or pairwise fallback) per feasible outcome ---
+    import os
     all_results = {}
+    pairwise_results = {}
     base_output_dir = str(dm.phase_dir("phase5_analysis", "nma"))
 
     for outcome, cs in feasible.items():
-        # Validate this outcome's sub-network
-        validation = validate_network(cs)
-        if not validation["valid"]:
-            logger.warning(f"NMA skip '{outcome}': {validation.get('errors', [])}")
-            continue
-
-        logger.info(
-            f"Running NMA for '{outcome}': {validation['n_treatments']} treatments, "
-            f"{validation['n_studies']} studies"
-        )
-
-        # Per-outcome output dir (absolute path for R)
-        import os
-        safe_name = outcome.replace("/", "_").replace(" ", "_")[:50]
-        outcome_dir = os.path.abspath(f"{base_output_dir}/{safe_name}")
-        os.makedirs(outcome_dir, exist_ok=True)
-
         # Detect effect measure from actual computation (tagged in nma.py)
         em_tags = set(c.get("effect_measure") for c in cs if c.get("effect_measure"))
         if em_tags == {"RR"}:
@@ -772,7 +812,99 @@ def _run_nma(dm, args):
             em = "SMD"
         else:
             em = nma_cfg.get("effect_measure", "SMD")
-        logger.info(f"  Effect measure for '{outcome}': {em} (from: {em_tags or 'config default'})")
+
+        safe_name = outcome.replace("/", "_").replace(" ", "_")[:50]
+        outcome_dir = os.path.abspath(f"{base_output_dir}/{safe_name}")
+        os.makedirs(outcome_dir, exist_ok=True)
+
+        # Validate this outcome's sub-network
+        validation = validate_network(cs)
+
+        if not validation["valid"]:
+            # Fallback to pairwise MA for <3 treatments or disconnected networks
+            n_treats = validation["n_treatments"]
+            n_studies = validation["n_studies"]
+            errors_str = "; ".join(validation.get("errors", []))
+
+            if n_treats < 3 and n_studies >= 2:
+                logger.info(
+                    f"Pairwise fallback for '{outcome}': {n_treats} treatments, "
+                    f"{n_studies} studies (em={em})"
+                )
+                pw_result = _run_pairwise_fallback(cs, outcome, em, outcome_dir)
+                if pw_result:
+                    pairwise_results[outcome] = pw_result
+                    logger.info(f"  Pairwise '{outcome}' complete")
+                continue
+
+            # Disconnected network: try largest connected sub-network
+            if "Disconnected" in errors_str:
+                # Find connected component containing reference group
+                ref = nma_cfg.get("reference_group")
+                adj = defaultdict(set)
+                for c in cs:
+                    adj[c["treat1"]].add(c["treat2"])
+                    adj[c["treat2"]].add(c["treat1"])
+                # BFS from reference (or first treatment)
+                start = ref if ref and ref in adj else next(iter(adj))
+                visited = set()
+                queue = [start]
+                while queue:
+                    node = queue.pop()
+                    if node in visited:
+                        continue
+                    visited.add(node)
+                    queue.extend(adj[node] - visited)
+                # Keep only contrasts within connected component
+                cs_connected = [
+                    c for c in cs
+                    if c["treat1"] in visited and c["treat2"] in visited
+                ]
+                if len(set(c["studlab"] for c in cs_connected)) >= 2 and len(visited) >= 3:
+                    logger.info(
+                        f"Disconnected '{outcome}': using largest component "
+                        f"({len(visited)} treatments, {len(cs_connected)} contrasts)"
+                    )
+                    cs = cs_connected
+                elif len(set(c["studlab"] for c in cs_connected)) >= 2:
+                    # Connected component has <3 treatments → pairwise
+                    logger.info(
+                        f"Pairwise fallback for '{outcome}' (disconnected, "
+                        f"{len(visited)} treatments in main component)"
+                    )
+                    pw_result = _run_pairwise_fallback(
+                        cs_connected, outcome, em, outcome_dir
+                    )
+                    if pw_result:
+                        pairwise_results[outcome] = pw_result
+                    continue
+                else:
+                    logger.warning(f"NMA skip '{outcome}': {errors_str}")
+                    continue
+            else:
+                logger.warning(f"NMA skip '{outcome}': {errors_str}")
+                continue
+
+        logger.info(
+            f"Running NMA for '{outcome}': {validation['n_treatments']} treatments, "
+            f"{validation['n_studies']} studies (em={em})"
+        )
+
+        # Per-outcome small_values: for continuous outcomes (SMD/MD),
+        # lower values (more negative change) = better → "desirable".
+        # For binary outcomes (RR): depends on outcome.
+        # Pregnancy/ovulation/birth: higher RR = better → "undesirable"
+        # Adverse events/discontinuation: higher RR = worse → "desirable"
+        ol = outcome.lower()
+        if em in ("SMD", "MD"):
+            sv = "desirable"  # lower weight/BMI/HOMA-IR = better
+        elif any(k in ol for k in ["pregnan", "ovulat", "birth", "menstrual", "regulari"]):
+            sv = "undesirable"  # higher rate = better
+        elif any(k in ol for k in ["adverse", "nausea", "diarrhea", "discontinu", "hypoglyc",
+                                    "miscarr", "vomit"]):
+            sv = "desirable"  # higher rate = worse
+        else:
+            sv = nma_cfg.get("small_values", "undesirable")
 
         try:
             result = run_nma(
@@ -780,7 +912,7 @@ def _run_nma(dm, args):
                 effect_measure=em,
                 method_tau=nma_cfg.get("method_tau", "REML"),
                 reference_group=nma_cfg.get("reference_group"),
-                small_values=nma_cfg.get("small_values", "undesirable"),
+                small_values=sv,
             )
             all_results[outcome] = result
             logger.info(f"  NMA '{outcome}' complete")
@@ -789,8 +921,14 @@ def _run_nma(dm, args):
 
     results = {
         "per_outcome": all_results,
-        "n_outcomes_analysed": len(all_results),
-        "outcomes_skipped": [o for o in feasible if o not in all_results],
+        "pairwise_fallback": pairwise_results,
+        "n_outcomes_nma": len(all_results),
+        "n_outcomes_pairwise": len(pairwise_results),
+        "n_outcomes_analysed": len(all_results) + len(pairwise_results),
+        "outcomes_skipped": [
+            o for o in feasible
+            if o not in all_results and o not in pairwise_results
+        ],
     }
 
     # Save results
@@ -834,27 +972,29 @@ def _run_nma(dm, args):
     print("\n" + "=" * 50)
     print("  Phase 5 NMA Analysis Complete")
     print("=" * 50)
-    print(f"  Studies:         {results.get('n_studies', '?')}")
-    print(f"  Treatments:      {results.get('n_treatments', '?')}")
-    print(f"  Contrasts:       {results.get('n_contrasts', '?')}")
-    print(f"  Effect measure:  {results.get('effect_measure', '?')}")
-    print(f"  tau2:            {results.get('tau2', '?')}")
-    print(f"  I2:              {results.get('I2', '?')}%")
+    print(f"  NMA outcomes:      {results.get('n_outcomes_nma', 0)}")
+    print(f"  Pairwise fallback: {results.get('n_outcomes_pairwise', 0)}")
+    print(f"  Total analysed:    {results.get('n_outcomes_analysed', 0)}")
+    if results.get("outcomes_skipped"):
+        print(f"  Skipped:           {results['outcomes_skipped']}")
 
-    if results.get("rankings"):
-        rankings = results["rankings"]
-        if isinstance(rankings, list):
-            print("\n  Treatment Rankings (P-score):")
-            for r in rankings:
-                print(f"    {r.get('rank', '?')}. {r.get('treatment', '?')} (P={r.get('p_score', '?')})")
-        elif isinstance(rankings, dict) and "treatment" in rankings:
-            print(f"\n  Top treatment: {rankings.get('treatment', '?')}")
+    # Per-outcome NMA summaries
+    for outcome, r in all_results.items():
+        print(f"\n  [NMA] {outcome}:")
+        print(f"    k={r.get('n_studies','?')}, treatments={r.get('n_treatments','?')}, "
+              f"tau2={r.get('tau2','?')}, I2={r.get('I2','?')}%")
+        rankings = r.get("rankings")
+        if rankings and isinstance(rankings, list) and rankings:
+            top = rankings[0]
+            print(f"    Best: {top.get('treatment','?')} (P={top.get('p_score','?')})")
 
-    consistency = results.get("consistency", {})
-    if consistency:
-        pval = consistency.get("pval_between", "?")
-        incon = consistency.get("inconsistency_detected", False)
-        print(f"\n  Consistency:     p={pval} ({'INCONSISTENCY' if incon else 'OK'})")
+    # Per-outcome pairwise fallback summaries
+    for outcome, r in pairwise_results.items():
+        main = r.get("main", {})
+        print(f"\n  [Pairwise] {outcome}:")
+        print(f"    k={r.get('n_studies','?')}, em={r.get('effect_measure','?')}, "
+              f"pooled={main.get('pooled_effect','?')}, "
+              f"I2={main.get('I2','?')}%")
 
     print(f"\n  Figures: {base_output_dir}/*/figures/")
     print(f"  Tables:  {base_output_dir}/*/tables/")

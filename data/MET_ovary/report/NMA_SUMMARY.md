@@ -67,7 +67,7 @@
 
 ## Pipeline Cost
 - Phase 1 (Strategy): $0.11
-- Phase 2.5 (Pre-screening): ~$0.05
+- Phase 3.0 (Pre-screening): ~$0.05
 - Phase 3.1 (Dual Screening): $3.49
 - Phase 3.3 (Full-text): $0.86
 - Phase 4 (Extraction): $3.89
